@@ -36,30 +36,25 @@ on:
 jobs:
   main:
     runs-on: ${{ inputs.RUNNER }} 
-    timeout-minutes: ${{ inputs.TIMEOUT }}
     outputs:
       conclusion: ${{ steps.main.conclusion }}
       log: ${{ steps.main.outputs.log }}
-    container:
-      image: nemoci.azurecr.io/nemo_container_${{ github.run_id }}
-      options: 
-        --device=/dev/nvidia0
-        --gpus all
-        --shm-size=8g
-        --env TRANSFORMERS_OFFLINE=0 
-        --env HYDRA_FULL_ERROR=1
-        --volume /mnt/datadrive/TestData:/home/TestData
+    permissions:
+      actions: write # Required for cancelling workflows 
     steps:
-        - name: Checkout repository
-          uses: actions/checkout@v4
+        - name: Docker system cleanup
+          run: |
+            docker system prune -a --filter "until=48h" --force
+
         - id: main
           name: Run main script
+          timeout-minutes: ${{ inputs.TIMEOUT }}
           run: |
             set +e 
             (  
               set -e
 
-              ${{ inputs.SCRIPT }}
+              docker run --rm --device=/dev/nvidia0 --gpus all --shm-size=8g --env TRANSFORMERS_OFFLINE=0 --env HYDRA_FULL_ERROR=1 --volume /mnt/datadrive/TestData:/home/TestData nemoci.azurecr.io/nemo_container_${{ github.run_id }} bash -c '${{ inputs.SCRIPT }}'
             ) 2> >(tee err.log)
 
             EXIT_CODE=$?
@@ -70,6 +65,9 @@ jobs:
             
         - uses: "NVIDIA/NeMo/.github/actions/cancel-workflow@main"
           if: failure() && inputs.IS_OPTIONAL == false
+
         - name: after_script
           if: always() && inputs.AFTER_SCRIPT != ':'
-          run: ${{ inputs.AFTER_SCRIPT }}
+          run: |
+            docker run --rm --device=/dev/nvidia0 --gpus all --shm-size=8g --env TRANSFORMERS_OFFLINE=0 --env HYDRA_FULL_ERROR=1 --volume /mnt/datadrive/TestData:/home/TestData nemoci.azurecr.io/nemo_container_${{ github.run_id }} bash -c '${{ inputs.AFTER_SCRIPT }}'
+            
